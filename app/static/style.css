@@ -103,6 +103,9 @@ body.mode-erase .overlay { cursor: crosshair; }
 }
 .drop .big { font-size: 22px; color: var(--text); font-weight: bold; margin-bottom: 4px; }
 .drop ul { margin: 16px 0 0; padding-left: 20px; }
+.drop .note { font-size: 13px; margin: 12px 0 0; }
+.drop .note + .note { margin-top: 4px; }
+.drop a { color: var(--primary); }
 .drop.over { border-color: var(--primary); background: #f3f6ff; }
 
 .panel {

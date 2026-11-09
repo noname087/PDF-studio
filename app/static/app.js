@@ -14,6 +14,17 @@ const state = {
   mergeFiles: [],
 };
 const PX = 4 / 3;
+const config = { maxUploadMB: 30, maxMergeMB: 80, maxPages: 300, docTtlMinutes: 60, sourceUrl: "" };
+
+// a random id for this browser, so uploaded fonts are private to it
+const CLIENT_ID = (() => {
+  const make = () => [...crypto.getRandomValues(new Uint8Array(16))].map(b => b.toString(16).padStart(2, "0")).join("");
+  try {
+    let id = localStorage.getItem("tps_client");
+    if (!/^[a-f0-9]{32}$/.test(id || "")) { id = make(); localStorage.setItem("tps_client", id); }
+    return id;
+  } catch { return make(); }
+})();
 const HINTS = {
   edit: "คลิกที่บรรทัดข้อความเพื่อแก้ไข",
   add: "คลิกตรงจุดที่ต้องการวางข้อความใหม่ (มุมซ้ายบนของข้อความ)",
@@ -75,7 +86,7 @@ function previewFamily(key, bold, italic) {
 
 // ------------------------------------------------------------------ fonts
 async function loadFonts() {
-  state.fonts = await (await api("/api/fonts")).json();
+  state.fonts = await (await api("/api/fonts?client=" + CLIENT_ID)).json();
   const sel = $("#edFont");
   sel.innerHTML = state.fonts.map(f => `<option value="${f.key}">${f.label}</option>`).join("");
 }
@@ -85,6 +96,10 @@ async function openFile(file) {
   if (!file) return;
   if (!/\.pdf$/i.test(file.name) && file.type !== "application/pdf") {
     toast("กรุณาเลือกไฟล์ PDF", true);
+    return;
+  }
+  if (file.size > config.maxUploadMB * 1024 * 1024) {
+    toast(`ไฟล์ใหญ่เกิน ${config.maxUploadMB} MB`, true);
     return;
   }
   const fd = new FormData();
@@ -473,7 +488,9 @@ async function doMerge() {
       fd.append("files", new File([await r.blob()], state.doc.name, { type: "application/pdf" }));
       count++;
     }
-    for (const f of state.mergeFiles) { fd.append("files", f); count++; }
+    let total = 0;
+    for (const f of state.mergeFiles) { fd.append("files", f); count++; total += f.size; }
+    if (total > config.maxMergeMB * 1024 * 1024) { toast(`ไฟล์รวมกันใหญ่เกิน ${config.maxMergeMB} MB`, true); return; }
     if (count < 2) { toast("เลือกอย่างน้อย 2 ไฟล์เพื่อรวม", true); return; }
     const info = await (await api("/api/merge", { method: "POST", body: fd })).json();
     state.mergeFiles = [];
@@ -497,7 +514,15 @@ async function doSplit() {
 }
 
 // ------------------------------------------------------------------ wiring
+async function loadConfig() {
+  try { Object.assign(config, await (await api("/api/config")).json()); } catch {}
+  $("#limitNote").textContent =
+    `ไฟล์ละไม่เกิน ${config.maxUploadMB} MB / ${config.maxPages} หน้า · ไฟล์จะถูกลบจากเซิร์ฟเวอร์อัตโนมัติเมื่อไม่ได้ใช้ ${config.docTtlMinutes} นาที`;
+  if (config.sourceUrl) { $("#sourceLink").href = config.sourceUrl; $("#sourceLink").hidden = false; }
+}
+
 function init() {
+  loadConfig();
   loadFonts().catch(() => toast("โหลดรายการฟอนต์ไม่สำเร็จ", true));
   setMode("edit");
 
@@ -528,12 +553,14 @@ function init() {
     const f = e.target.files[0];
     e.target.value = "";
     if (!f) return;
-    const fd = new FormData(); fd.append("file", f);
+    const fd = new FormData(); fd.append("file", f); fd.append("client", CLIENT_ID);
     try {
       const keep = currentStyle();
+      const before = new Set(state.fonts.map(x => x.key));
       state.fonts = await (await api("/api/fonts", { method: "POST", body: fd })).json();
       $("#edFont").innerHTML = state.fonts.map(x => `<option value="${x.key}">${x.label}</option>`).join("");
-      $("#edFont").value = "user:" + f.name;
+      const added = state.fonts.find(x => !before.has(x.key));
+      $("#edFont").value = added ? added.key : keep.family;
       if (!$("#edFont").value) $("#edFont").value = keep.family;
       updatePreview();
       toast("เพิ่มฟอนต์ " + f.name + " แล้ว");

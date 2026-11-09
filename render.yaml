@@ -1,0 +1,23 @@
+# Render Blueprint: https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: pdf-studio
+    runtime: docker
+    plan: free            # change to "starter" for no sleeping + more memory
+    healthCheckPath: /api/health
+    autoDeploy: true      # redeploy on every push to the main branch
+    envVars:
+      - key: MAX_UPLOAD_MB
+        value: "30"
+      - key: MAX_MERGE_MB
+        value: "80"
+      - key: MAX_PAGES
+        value: "300"
+      - key: MAX_DOCS
+        value: "20"
+      - key: DOC_TTL_MINUTES
+        value: "60"
+      - key: MAX_UNDO_MB
+        value: "60"
+      - key: SOURCE_URL
+        value: "https://github.com/noname087/PDF-studio"

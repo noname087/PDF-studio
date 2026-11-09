@@ -1,0 +1,8 @@
+.git
+**/__pycache__
+*.pyc
+samples
+tests
+screenshot.png
+app/fonts/user
+.venv

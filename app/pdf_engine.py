@@ -39,18 +39,39 @@ BUILTIN_FONTS = {
 
 # ---------------------------------------------------------------- fonts
 
-def list_fonts() -> list[dict]:
+_CLIENT_RE = re.compile(r"^[a-f0-9]{16,64}$")
+
+
+def client_font_dir(client: str) -> Path | None:
+    """Each browser gets its own folder for uploaded fonts (client = random id)."""
+    if not client or not _CLIENT_RE.match(client):
+        return None
+    return USER_FONT_DIR / client
+
+
+def list_fonts(client: str = "") -> list[dict]:
     fonts = [{"key": k, "label": v["label"], "custom": False} for k, v in BUILTIN_FONTS.items()]
-    if USER_FONT_DIR.exists():
-        for f in sorted(USER_FONT_DIR.glob("*.[ot]tf")):
-            fonts.append({"key": "user:" + f.name, "label": f.stem + " (ของฉัน)", "custom": True})
+    d = client_font_dir(client)
+    if d and d.exists():
+        for f in sorted(d.glob("*.[ot]tf")):
+            fonts.append({"key": f"user:{client}/{f.name}", "label": f.stem + " (ของฉัน)", "custom": True})
     return fonts
+
+
+def user_font_path(key: str) -> Path | None:
+    """'user:<client>/<file>' -> path, or None if invalid / missing."""
+    client, _, name = key[5:].partition("/")
+    d = client_font_dir(client)
+    if not d or not name:
+        return None
+    p = d / Path(name).name
+    return p if p.is_file() else None
 
 
 def font_file(family: str, bold: bool, italic: bool) -> Path:
     if family.startswith("user:"):
-        p = USER_FONT_DIR / Path(family[5:]).name
-        if p.exists():
+        p = user_font_path(family)
+        if p:
             return p
         family = "Sarabun"
     info = BUILTIN_FONTS.get(family) or BUILTIN_FONTS["Sarabun"]
@@ -71,7 +92,7 @@ def font_file(family: str, bold: bool, italic: bool) -> Path:
 # font's GSUB rules so every glyph maps back to real Thai characters.
 
 _GLYPH_TEXT_CACHE: dict[str, dict[int, str]] = {}
-_PS_NAME_CACHE: dict[str, Path] = {}
+_FONT_NAMES_CACHE: dict[str, set[str]] = {}
 
 
 def _is_pua(ch: str) -> bool:
@@ -152,30 +173,26 @@ def _glyph_text_map(path: Path) -> dict[int, str]:
     return out
 
 
-def _scan_font_names() -> None:
-    from fontTools.ttLib import TTFont
-    _PS_NAME_CACHE.clear()
-    for p in list(FONT_DIR.glob("*.[ot]tf")) + list(USER_FONT_DIR.glob("*.[ot]tf")):
-        try:
-            names = TTFont(str(p), lazy=True)["name"]
-            for nid in (4, 6):  # full name, PostScript name
-                n = names.getDebugName(nid)
-                if n:
-                    _PS_NAME_CACHE[_name_key(n)] = p
-        except Exception:
-            pass
-
-
 def _name_key(name: str) -> str:
     return re.sub(r"[^a-z0-9]", "", re.sub(r"^[A-Z]{6}\+", "", name).lower())
 
 
-def _font_by_ps_name(ps: str) -> Path | None:
-    """Find which of our font files an embedded PDF font came from."""
-    ps = _name_key(ps)
-    if ps not in _PS_NAME_CACHE:
-        _scan_font_names()  # maybe a font was uploaded since the last scan
-    return _PS_NAME_CACHE.get(ps)
+def _font_names(path: Path) -> set[str]:
+    """Full name and PostScript name of a font file (how PDFs refer to it)."""
+    key = str(path)
+    if key not in _FONT_NAMES_CACHE:
+        from fontTools.ttLib import TTFont
+        names = set()
+        try:
+            tbl = TTFont(key, lazy=True)["name"]
+            for nid in (4, 6):
+                n = tbl.getDebugName(nid)
+                if n:
+                    names.add(_name_key(n))
+        except Exception:
+            pass
+        _FONT_NAMES_CACHE[key] = names
+    return _FONT_NAMES_CACHE[key]
 
 
 def _tounicode_cmap(m: dict[int, str]) -> bytes:
@@ -195,14 +212,12 @@ def _tounicode_cmap(m: dict[int, str]) -> bytes:
     return "\n".join(out).encode()
 
 
-def fix_text_mapping(page: pymupdf.Page) -> None:
-    """Rewrite ToUnicode of our embedded Thai fonts on this page."""
+def fix_text_mapping(page: pymupdf.Page, path: Path) -> None:
+    """Rewrite ToUnicode of the font file `path` wherever it is embedded on this page."""
     doc = page.parent
+    names = _font_names(path)
     for xref, ext, ftype, basefont, *_ in page.get_fonts():
-        if ftype != "Type0":
-            continue
-        path = _font_by_ps_name(basefont)
-        if not path:
+        if ftype != "Type0" or _name_key(basefont) not in names:
             continue
         kind, val = doc.xref_get_key(xref, "ToUnicode")
         if kind != "xref":
@@ -360,7 +375,7 @@ def draw_text(page: pymupdf.Page, text: str, st: TextStyle, x: float, baseline: 
     # 2) draw it for real, shifted so the baselines (and left edge) match
     rect = pymupdf.Rect(x + dx, dy, x + dx + width, dy + used_h + st.size)
     page.insert_htmlbox(rect, body, css=css, archive=archive, scale_low=1)
-    fix_text_mapping(page)
+    fix_text_mapping(page, font_path)
     return rect
 
 
@@ -430,7 +445,7 @@ def add_text(page: pymupdf.Page, x: float, top: float, text: str, st: TextStyle)
     ox, oy = (first[0], first[1]) if first else (0, 0)
     rect = view_to_page(page, (x - ox, top - oy, x - ox + width, top - oy + height))
     page.insert_htmlbox(rect, body, css=css, archive=archive, scale_low=1, rotate=page.rotation)
-    fix_text_mapping(page)
+    fix_text_mapping(page, font_path)
 
 
 # ---------------------------------------------------------------- page / file ops
