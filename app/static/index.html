@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Thai PDF Studio</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand"><span class="logo">ก</span> Thai PDF Studio</div>
+  <div class="actions">
+    <label class="btn primary">เปิดไฟล์ PDF<input type="file" id="fileInput" accept="application/pdf,.pdf" hidden></label>
+    <button class="btn" id="mergeBtn">รวมไฟล์</button>
+    <button class="btn needs-doc" id="splitBtn" disabled>แยกไฟล์</button>
+    <span class="sep"></span>
+    <button class="btn needs-doc" id="undoBtn" disabled title="Ctrl+Z">↶ ย้อนกลับ</button>
+    <button class="btn needs-doc" id="textBtn" disabled>ดึงข้อความ (.txt)</button>
+    <button class="btn accent needs-doc" id="downloadBtn" disabled>ดาวน์โหลด PDF</button>
+  </div>
+</header>
+
+<div class="toolbar needs-doc-bar" id="toolbar" hidden>
+  <div class="seg" id="modeSeg">
+    <button data-mode="edit" class="on" title="คลิกที่บรรทัดข้อความเพื่อแก้ไข">✎ แก้ข้อความ</button>
+    <button data-mode="add" title="คลิกตรงที่ต้องการวางข้อความใหม่">＋ เพิ่มข้อความ</button>
+    <button data-mode="erase" title="ลากกรอบเพื่อลบข้อความในพื้นที่">⌫ ลบพื้นที่</button>
+    <button data-mode="view" title="อ่านอย่างเดียว">👁 อ่าน</button>
+  </div>
+  <div class="hint" id="modeHint">คลิกที่บรรทัดข้อความเพื่อแก้ไข</div>
+  <div class="zoom">
+    <button class="btn small" id="zoomOut">−</button>
+    <span id="zoomLabel">100%</span>
+    <button class="btn small" id="zoomIn">＋</button>
+  </div>
+</div>
+
+<main id="workspace">
+  <aside id="thumbs" hidden></aside>
+  <section id="viewer">
+    <div class="empty" id="emptyState">
+      <div class="drop" id="dropZone">
+        <div class="big">ลากไฟล์ PDF มาวางที่นี่</div>
+        <div>หรือกด “เปิดไฟล์ PDF” ด้านบน</div>
+        <ul>
+          <li>แก้ข้อความภาษาไทยได้ สระและวรรณยุกต์ไม่ลอย</li>
+          <li>รวมหลายไฟล์เป็นไฟล์เดียว / แยกไฟล์ตามช่วงหน้า</li>
+          <li>หมุน ลบ จัดลำดับหน้า และดึงข้อความออกมา</li>
+        </ul>
+      </div>
+    </div>
+    <div id="pages"></div>
+  </section>
+</main>
+
+<!-- text editor popover -->
+<div id="editor" class="panel" hidden>
+  <div class="panel-head"><b id="editorTitle">แก้ไขข้อความ</b><button class="x" id="editorClose">×</button></div>
+  <textarea id="edText" rows="3" spellcheck="false"></textarea>
+  <div class="grid">
+    <label>ฟอนต์<select id="edFont"></select></label>
+    <label>ขนาด (pt)<input type="number" id="edSize" step="0.5" min="2" max="400"></label>
+    <label>สี<input type="color" id="edColor"></label>
+    <label>จัดวาง
+      <select id="edAlign"><option value="left">ชิดซ้าย</option><option value="center">กึ่งกลาง</option><option value="right">ชิดขวา</option></select>
+    </label>
+  </div>
+  <div class="row">
+    <label class="chk"><input type="checkbox" id="edBold"> ตัวหนา</label>
+    <label class="chk"><input type="checkbox" id="edItalic"> ตัวเอียง</label>
+    <label class="chk" title="ใช้เมื่อข้อความเดิมเป็นภาพหรือลบไม่หมด"><input type="checkbox" id="edFill"> ทาสีพื้นทับ</label>
+    <input type="color" id="edFillColor" value="#ffffff" title="สีพื้น">
+  </div>
+  <div class="orig" id="edOrig"></div>
+  <div class="row end">
+    <label class="btn small ghost" title="เพิ่มฟอนต์ของคุณเอง เช่น TH SarabunPSK">+ ฟอนต์<input type="file" id="fontUpload" accept=".ttf,.otf" hidden></label>
+    <span class="grow"></span>
+    <button class="btn danger" id="edDelete">ลบบรรทัด</button>
+    <button class="btn primary" id="edSave">บันทึก</button>
+  </div>
+</div>
+
+<!-- merge dialog -->
+<dialog id="mergeDlg">
+  <form method="dialog" class="dlg">
+    <h3>รวมไฟล์ PDF</h3>
+    <p class="muted">เลือกไฟล์ แล้วจัดลำดับด้วยปุ่มลูกศร</p>
+    <label class="btn">+ เพิ่มไฟล์<input type="file" id="mergeInput" accept="application/pdf,.pdf" multiple hidden></label>
+    <label class="chk needs-doc-inline"><input type="checkbox" id="mergeIncludeCurrent"> รวมเอกสารที่เปิดอยู่ไว้เป็นไฟล์แรก</label>
+    <ol id="mergeList"></ol>
+    <div class="row end">
+      <button class="btn" value="cancel">ยกเลิก</button>
+      <button class="btn primary" id="mergeGo" value="default">รวมไฟล์</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- split dialog -->
+<dialog id="splitDlg">
+  <form method="dialog" class="dlg">
+    <h3>แยกไฟล์ PDF</h3>
+    <p class="muted" id="splitInfo"></p>
+    <label class="radio"><input type="radio" name="smode" value="ranges" checked> ตามช่วงหน้า
+      <input type="text" id="splitRanges" placeholder="เช่น 1-3, 5, 8-"></label>
+    <div class="muted small">แต่ละช่วงจะได้ 1 ไฟล์ (เช่น “1-3, 5” ได้ 2 ไฟล์)</div>
+    <label class="radio"><input type="radio" name="smode" value="every"> ทุก ๆ
+      <input type="number" id="splitEvery" value="1" min="1" style="width:5em"> หน้า</label>
+    <label class="radio"><input type="radio" name="smode" value="each"> แยกทุกหน้าเป็นไฟล์เดี่ยว</label>
+    <div class="row end">
+      <button class="btn" value="cancel">ยกเลิก</button>
+      <button class="btn primary" id="splitGo" value="default">แยกไฟล์</button>
+    </div>
+  </form>
+</dialog>
+
+<div id="toast"></div>
+<div id="busy" hidden><div class="spinner"></div></div>
+<script src="app.js"></script>
+</body>
+</html>
